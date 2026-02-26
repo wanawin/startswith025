@@ -1,0 +1,6 @@
+core,feature,op,value,pick,weight
+25,seed_absdiff,==,1,225,1
+25,seed_absdiff,==,2,255,1
+25,seed_spread,==,5,225,1
+25,seed_sum_lastdigit,==,3,225,1
+25,seed_spread,==,1,255,1

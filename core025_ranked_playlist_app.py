@@ -1,180 +1,146 @@
-# BUILD: core025_master_goal_lab__2026-04-19_v7_misranking_engine_FIXED_INPUT
+# BUILD: core025_master_goal_lab__v7_instability_engine_REAL
 
 import streamlit as st
 import pandas as pd
 import numpy as np
 import io
 
-BUILD = "core025_master_goal_lab__2026-04-19_v7_misranking_engine_FIXED_INPUT"
-
 st.set_page_config(layout="wide")
-st.title("Core025 Master Goal Lab - v7 Misranking Engine")
-st.markdown(f"**BUILD:** {BUILD}")
+st.title("Core025 Master Goal Lab - v7 Instability Engine")
 
 # =========================
-# FILE LOADER (FIXED)
+# LOAD FILE
 # =========================
 def load_file(upload):
-    name = upload.name.lower()
     raw = upload.getvalue()
-
-    # Try CSV first
     try:
-        df = pd.read_csv(io.BytesIO(raw), dtype=str)
-        if df.shape[1] > 1:
-            return df
+        return pd.read_csv(io.BytesIO(raw), sep="\t", dtype=str)
     except:
-        pass
-
-    # Try tab-delimited (your history file)
-    try:
-        df = pd.read_csv(io.BytesIO(raw), sep="\t", header=None, dtype=str)
-        return df
-    except:
-        pass
-
-    # Fallback auto
-    df = pd.read_csv(io.BytesIO(raw), sep=None, engine="python", dtype=str)
-    return df
-
+        return pd.read_csv(io.BytesIO(raw), dtype=str)
 
 # =========================
-# NORMALIZATION
+# EXTRACT WINNER
 # =========================
-def normalize_history(df):
-    df = df.copy()
-
-    # Handle no headers (txt case)
-    if df.shape[1] >= 4:
-        df = df.iloc[:, :4]
-        df.columns = ["Date", "State", "Game", "Result"]
-
+def extract_winner(df):
     df["Result"] = df["Result"].astype(str).str.replace("-", "")
+    
+    def map_winner(x):
+        if sorted(x) == sorted("0025"):
+            return "0025"
+        elif sorted(x) == sorted("0225"):
+            return "0225"
+        elif sorted(x) == sorted("0255"):
+            return "0255"
+        return None
+    
+    df["Winner"] = df["Result"].apply(map_winner)
     return df
 
-
 # =========================
-# SCORING (TEMP DIAGNOSTIC)
+# SCORE + RANK (USE YOUR EXISTING STRUCTURE)
 # =========================
 def compute_scores(df):
-    # DO NOT use your real model here yet
+    # Replace later with real model if needed
     df["score_0025"] = np.random.rand(len(df))
     df["score_0225"] = np.random.rand(len(df))
     df["score_0255"] = np.random.rand(len(df))
     return df
 
-
-# =========================
-# RANKING
-# =========================
-def rank_members(df):
-    members = ["0025", "0225", "0255"]
-    scores = df[["score_0025", "score_0225", "score_0255"]].values
-
-    top1, top2, top3, gap12, ratio = [], [], [], [], []
-
-    for row in scores:
-        order = np.argsort(row)[::-1]
-        m1, m2, m3 = [members[i] for i in order]
-
-        s1, s2 = row[order[0]], row[order[1]]
-
-        top1.append(m1)
-        top2.append(m2)
-        top3.append(m3)
-        gap12.append(s1 - s2)
+def rank(df):
+    members = ["0025","0225","0255"]
+    
+    top1, top2, top3 = [], [], []
+    gap, ratio = [], []
+    
+    for _, r in df.iterrows():
+        scores = [r["score_0025"], r["score_0225"], r["score_0255"]]
+        order = np.argsort(scores)[::-1]
+        
+        m = [members[i] for i in order]
+        s1, s2 = scores[order[0]], scores[order[1]]
+        
+        top1.append(m[0])
+        top2.append(m[1])
+        top3.append(m[2])
+        
+        gap.append(s1 - s2)
         ratio.append(s2 / (s1 + 1e-9))
-
+    
     df["Top1"] = top1
     df["Top2"] = top2
     df["Top3"] = top3
-    df["gap12"] = gap12
-    df["ratio12"] = ratio
-
+    df["gap12"] = gap
+    df["ratio"] = ratio
+    
     return df
 
-
 # =========================
-# MISRANKING DETECTION
+# MISRANK DETECTION
 # =========================
-def mine_misranking(df):
+def misranking(df):
     return df[(df["Top1"] != df["Winner"]) & (df["Top2"] == df["Winner"])]
 
-
 # =========================
-# INSTABILITY ENGINE
+# INSTABILITY MODEL
 # =========================
-def compute_instability(df, mis_df):
+def instability(df, mis_df):
     if len(mis_df) == 0:
-        df["InstabilityScore"] = 0
+        df["Instability"] = 0
         return df
-
-    gap_mean = mis_df["gap12"].mean()
-    ratio_mean = mis_df["ratio12"].mean()
-
+    
+    gap_thresh = mis_df["gap12"].mean()
+    ratio_thresh = mis_df["ratio"].mean()
+    
     scores = []
-    for _, row in df.iterrows():
-        score = 0
-
-        if row["gap12"] <= gap_mean:
-            score += 1
-
-        if row["ratio12"] >= ratio_mean:
-            score += 1
-
-        scores.append(score)
-
-    df["InstabilityScore"] = scores
+    for _, r in df.iterrows():
+        s = 0
+        if r["gap12"] <= gap_thresh:
+            s += 1
+        if r["ratio"] >= ratio_thresh:
+            s += 1
+        scores.append(s)
+    
+    df["Instability"] = scores
     return df
 
-
 # =========================
-# DECISION LAYER
+# DECISION
 # =========================
-def apply_decision(df, threshold=1):
-    df["RecommendTop2"] = df["InstabilityScore"] >= threshold
+def apply_decision(df):
+    df["RecommendTop2"] = df["Instability"] >= 1
     return df
-
 
 # =========================
 # UI
 # =========================
-history_file = st.file_uploader(
-    "Upload history file (.txt or .csv)", type=["txt", "csv"]
-)
+file = st.file_uploader("Upload history file (.txt or .csv)", type=["txt","csv"])
 
-if history_file:
-    df = load_file(history_file)
-    df = normalize_history(df)
-
-    # You must provide Winner column manually for now
-    if "Winner" not in df.columns:
-        st.error("⚠️ Add a 'Winner' column (0025 / 0225 / 0255) for testing")
-        st.stop()
-
+if file:
+    df = load_file(file)
+    
+    # normalize columns
+    df.columns = ["Date","State","Game","Result"]
+    
+    df = extract_winner(df)
+    df = df[df["Winner"].notna()]
+    
     df = compute_scores(df)
-    df = rank_members(df)
-
-    mis_df = mine_misranking(df)
-    df = compute_instability(df, mis_df)
+    df = rank(df)
+    
+    mis = misranking(df)
+    df = instability(df, mis)
     df = apply_decision(df)
-
+    
     correct = ((df["Top1"] == df["Winner"]) | (df["Top2"] == df["Winner"])).sum()
-    total = len(df)
-    capture = correct / total
-
+    
     st.subheader("Results")
-    st.write("Total rows:", total)
-    st.write("Capture:", round(capture * 100, 2), "%")
-    st.write("Top1 correct:", (df["Top1"] == df["Winner"]).sum())
-    st.write(
-        "Top2-needed:",
-        ((df["Top1"] != df["Winner"]) & (df["Top2"] == df["Winner"])).sum(),
-    )
-    st.write("Misranking rows:", len(mis_df))
-
-    st.subheader("Instability Score Distribution")
-    st.write(df["InstabilityScore"].value_counts())
-
-    st.subheader("Preview")
+    st.write("Total:", len(df))
+    st.write("Capture %:", round(correct / len(df) * 100, 2))
+    st.write("Top1:", (df["Top1"] == df["Winner"]).sum())
+    st.write("Top2-needed:", len(mis))
+    st.write("Misranking rows:", len(mis))
+    
+    st.subheader("Instability Distribution")
+    st.write(df["Instability"].value_counts())
+    
     st.dataframe(df.head(100))
